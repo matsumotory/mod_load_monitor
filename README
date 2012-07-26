@@ -1,12 +1,13 @@
 mod_load_monitor
 
-こんな感じで設定すると、リクエスト処理時に指定したロードアベレージの値を超えていると、指定したコマンドが実行されます。ちなみに、.htaccessにも記述することができます。
+こんな感じで設定すると、LoadMonitorOverの場合は、リクエスト処理時に指定したロードアベレージの値20を超えていると、指定したコマンドが実行されます。また、LoadMonitorUnderの場合は、指定したロードアベレージ5より低い場合に、指定したコマンドが実行されます。ちなみに、.htaccessにも記述することができます。
 
 LoadModule load_monitor_module modules/mod_load_monitor.so
-LoadMonitor 20.0 "echo hogee >> /tmp/uhohho"
+LoadMonitorOver 20.0 "echo '20 yori takai' >> /tmp/over"
+LoadMonitorUnder 5.0 "echo '5 yori hikui' >> /tmp/under"
 
 こんな感じで設定すると使えます。一応簡単なログ出力もしておきました。
 
-[Thu Jul 26 19:07:54 2012] [debug] mod_load_monitor DEBUG load_monitor_access_checker: cmd: echo hogee >> /tmp/uhohho code: 0 (current load: 34.160000 threshold load: 20.000000)
+[Thu Jul 26 19:07:54 2012] [debug] mod_load_monitor DEBUG load_monitor_access_checker: cmd: echo '20 yori takai' >> /tmp/over code: 0 (current load: 34.160000 over threshold load: 20.000000)
 
 Apache上でやってもあまり意味がないかもしれませんが、細かく設定することでApache自体が自分自身で能動的な動きをするような設定ができるかもしれませんね。その他、Apache自身が何か新しい監視システムになって、監視したりしだすと面白いかもしれません。
