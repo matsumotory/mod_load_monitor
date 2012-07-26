@@ -51,8 +51,10 @@ module AP_MODULE_DECLARE_DATA load_monitor_module;
 
 typedef struct _lm_dir_conf_t {
 
-    double load;
-    char *cmd;
+    double oload;
+    double uload;
+    char *ocmd;
+    char *ucmd;
 
 } lm_dir_conf_t;
 
@@ -60,13 +62,15 @@ static void *lm_create_dir_config(apr_pool_t *p, char *dir)
 {
     lm_dir_conf_t *dconf = (lm_dir_conf_t *)apr_pcalloc(p, sizeof(lm_dir_conf_t));
 
-    dconf->load = 0;
-    dconf->cmd  = NULL;
+    dconf->oload = -1;
+    dconf->uload = -1;
+    dconf->ocmd  = NULL;
+    dconf->ucmd  = NULL;
 
     return dconf;
 }
 
-static const char *set_load_monitor_cmd(cmd_parms *cmd, void *dconf_fmt, char *la, char *lmcmd)
+static const char *set_load_monitor_ucmd(cmd_parms *cmd, void *dconf_fmt, char *la, char *lmcmd)
 {
     double set_la = atof(la);
 
@@ -74,8 +78,22 @@ static const char *set_load_monitor_cmd(cmd_parms *cmd, void *dconf_fmt, char *l
         return "invalid Load";
 
     lm_dir_conf_t *dconf = (lm_dir_conf_t *)dconf_fmt;
-    dconf->load = set_la;
-    dconf->cmd  = apr_pstrdup(cmd->pool, lmcmd);
+    dconf->uload = set_la;
+    dconf->ucmd  = apr_pstrdup(cmd->pool, lmcmd);
+
+    return NULL;
+}
+
+static const char *set_load_monitor_ocmd(cmd_parms *cmd, void *dconf_fmt, char *la, char *lmcmd)
+{
+    double set_la = atof(la);
+
+    if (set_la < 0)
+        return "invalid Load";
+
+    lm_dir_conf_t *dconf = (lm_dir_conf_t *)dconf_fmt;
+    dconf->oload = set_la;
+    dconf->ocmd  = apr_pstrdup(cmd->pool, lmcmd);
 
     return NULL;
 }
@@ -97,45 +115,89 @@ static int load_monitor_init(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp,
     return OK;
 }
 
-static int load_monitor_access_checker(request_rec *r)
+static double current_load1()
 {
-    lm_dir_conf_t *dconf = ap_get_module_config(r->per_dir_config, &load_monitor_module);
-    int status;
     double cload[3];
 
     cload[0] = cload[1] = cload[2] = -1;
     getloadavg(cload, 3);
+    
+    return cload[0];
+}
 
-    if (cload[1] == -1)
+static int load_monitor_under_checker(request_rec *r)
+{
+    lm_dir_conf_t *dconf = ap_get_module_config(r->per_dir_config, &load_monitor_module);
+    int status;
+    
+    if (dconf->uload == -1)
+        return DECLINED;
+
+    double cload = current_load1();
+
+    if (cload == -1)
         return HTTP_SERVICE_UNAVAILABLE;
 
-    if (dconf->load < cload[1]) {
-        status = system(dconf->cmd);
+    if (dconf->uload > cload) {
+        status = system(dconf->ucmd);
         ap_log_perror(APLOG_MARK
             , APLOG_DEBUG
             , 0
             , r->pool
-            , "%s DEBUG %s: cmd: %s code: %d (current load: %f threshold load: %f)"
+            , "%s DEBUG %s: cmd: %s code: %d (current load: %f under threshold load: %f)"
             , MODULE_NAME
             , __func__
-            , dconf->cmd
+            , dconf->ucmd
             , status
-            , cload[0]
-            , dconf->load
+            , cload
+            , dconf->uload
+        );
+    }
+    return DECLINED;
+}
+
+static int load_monitor_over_checker(request_rec *r)
+{
+    lm_dir_conf_t *dconf = ap_get_module_config(r->per_dir_config, &load_monitor_module);
+    int status;
+
+    if (dconf->oload == -1)
+        return DECLINED;
+
+    double cload = current_load1();
+
+    if (cload == -1)
+        return HTTP_SERVICE_UNAVAILABLE;
+
+    if (dconf->oload < cload) {
+        status = system(dconf->ocmd);
+        ap_log_perror(APLOG_MARK
+            , APLOG_DEBUG
+            , 0
+            , r->pool
+            , "%s DEBUG %s: cmd: %s code: %d (current load: %f over threshold load: %f)"
+            , MODULE_NAME
+            , __func__
+            , dconf->ocmd
+            , status
+            , cload
+            , dconf->oload
         );
     }
     return DECLINED;
 }
 
 static const command_rec load_monitor_cmds[] = {
-    AP_INIT_TAKE2("LoadMonitor", (void *)set_load_monitor_cmd, NULL, RSRC_CONF | ACCESS_CONF | OR_LIMIT, "Set command over Load Average."),
+    AP_INIT_TAKE2("LoadMonitorOver", (void *)set_load_monitor_ocmd, NULL, RSRC_CONF | ACCESS_CONF | OR_LIMIT, "Set command over Load Average."),
+    AP_INIT_TAKE2("LoadMonitorUnder", (void *)set_load_monitor_ucmd, NULL, RSRC_CONF | ACCESS_CONF | OR_LIMIT, "Set command under Load Average."),
     {NULL}
 };
 
 static void load_monitor_register_hooks(apr_pool_t *p)
 {
     ap_hook_post_config(load_monitor_init, NULL, NULL, APR_HOOK_MIDDLE);
-    ap_hook_access_checker(load_monitor_access_checker, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_access_checker(load_monitor_over_checker, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_access_checker(load_monitor_under_checker, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 /* Dispatch list for API hooks */
