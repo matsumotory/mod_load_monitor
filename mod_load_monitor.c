@@ -125,6 +125,17 @@ static double current_load1()
     return cload[0];
 }
 
+static void setenv_load_monitor(request_rec *r)
+{
+    putenv(apr_psprintf(r->pool, "LOAD_MON_HOSTNAME=%s", r->hostname));
+    putenv(apr_psprintf(r->pool, "LOAD_MON_FILENAME=%s", r->filename));
+    putenv(apr_psprintf(r->pool, "LOAD_MON_URI=%s", r->uri));
+    putenv(apr_psprintf(r->pool, "LOAD_MON_METHOD=%s", r->method));
+    putenv(apr_psprintf(r->pool, "LOAD_MON_CLIENT_IP=%s", r->connection->remote_ip));
+    putenv(apr_psprintf(r->pool, "LOAD_MON_SERVER_IP=%s", r->connection->local_ip));
+    //putenv(apr_psprintf(r->pool, "LOAD_MON_=%s", r->));
+}
+
 static int load_monitor_under_checker(request_rec *r)
 {
     lm_dir_conf_t *dconf = ap_get_module_config(r->per_dir_config, &load_monitor_module);
@@ -139,6 +150,7 @@ static int load_monitor_under_checker(request_rec *r)
         return HTTP_SERVICE_UNAVAILABLE;
 
     if (dconf->uload > cload) {
+        setenv_load_monitor(r);
         status = system(dconf->ucmd);
         ap_log_perror(APLOG_MARK
             , APLOG_DEBUG
@@ -170,6 +182,7 @@ static int load_monitor_over_checker(request_rec *r)
         return HTTP_SERVICE_UNAVAILABLE;
 
     if (dconf->oload < cload) {
+        setenv_load_monitor(r);
         status = system(dconf->ocmd);
         ap_log_perror(APLOG_MARK
             , APLOG_DEBUG
